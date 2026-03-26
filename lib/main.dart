@@ -7,6 +7,7 @@ import 'screens/HomeEmergencyHotlineHospitals.dart';
 import 'screens/HomeEmergencyHotlinesPoliceStations.dart';  
 import 'screens/HomeBreakingNews.dart';
 import 'screens/ExploreScreen.dart';
+import 'screens/Attraction1.dart';
 void main() {
   runApp(const MyApp());
 }
@@ -32,6 +33,7 @@ class MyApp extends StatelessWidget {
       '/homebreakingnews': (context) => const HomeBreakingNews(),
 
       '/explorescreen': (context) => const Explorescreen(),
+      '/attraction1': (context) => const Attraction1(),
       },
     );
   }

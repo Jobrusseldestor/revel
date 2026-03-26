@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:revel/widgets/bottom_nav_bar.dart';
+import 'package:revel/screens/Attraction1.dart'; // adjust path as needed
 
 class Explorescreen extends StatelessWidget {
   const Explorescreen({super.key});
@@ -110,9 +111,7 @@ class Explorescreen extends StatelessWidget {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
                           image: DecorationImage(
-                            image: const AssetImage(
-                              'assets/img/exploreic.png',
-                            ),
+                            image: const AssetImage('assets/img/exploreic.png'),
                             fit: BoxFit.cover,
                             colorFilter: ColorFilter.mode(
                               Colors.black.withValues(alpha: 0.4),
@@ -201,9 +200,19 @@ class Explorescreen extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: Row(
                           children: [
-                            _attractionCard(
-                              'MOLO CHURCH',
-                              'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Molo_Church_view_%28with_the_Plaza_Molo_fountain%29.jpg/500px-Molo_Church_view_%28with_the_Plaza_Molo_fountain%29.jpg',
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const Attraction1(),
+                                  ),
+                                );
+                              },
+                              child: _attractionCard(
+                                'MOLO CHURCH',
+                                'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Molo_Church_view_%28with_the_Plaza_Molo_fountain%29.jpg/500px-Molo_Church_view_%28with_the_Plaza_Molo_fountain%29.jpg',
+                              ),
                             ),
                             _attractionCard(
                               'MOLO MANSION',
