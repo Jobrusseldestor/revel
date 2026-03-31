@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:revel/screens/Attraction2.dart';
 import 'package:revel/widgets/bottom_nav_bar.dart';
 import 'package:revel/screens/Attraction1.dart'; // adjust path as needed
 
@@ -214,9 +215,19 @@ class Explorescreen extends StatelessWidget {
                                 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Molo_Church_view_%28with_the_Plaza_Molo_fountain%29.jpg/500px-Molo_Church_view_%28with_the_Plaza_Molo_fountain%29.jpg',
                               ),
                             ),
-                            _attractionCard(
-                              'MOLO MANSION',
-                              'https://iloiloartlife.com/wp-content/uploads/2023/08/Molo-Mansion-Art-Space-scaled.jpg',
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const Attraction2(),
+                                  ),
+                                );
+                              },
+                              child: _attractionCard(
+                                'MOLO MANSION',
+                                'https://iloiloartlife.com/wp-content/uploads/2023/08/Molo-Mansion-Art-Space-scaled.jpg',
+                              ),
                             ),
                             _attractionCard(
                               'FORT SAN PEDRO',
@@ -673,6 +684,7 @@ class Explorescreen extends StatelessWidget {
     );
   }
 
+  // ignore: unused_element
   Widget _navItem(IconData icon, String label, bool isActive) {
     return Column(
       mainAxisSize: MainAxisSize.min,
