@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:async';
 
 class HomeBreakingNews extends StatefulWidget {
   const HomeBreakingNews({super.key});
@@ -8,6 +11,118 @@ class HomeBreakingNews extends StatefulWidget {
 
 class HomeBreakingNewsState extends State<HomeBreakingNews> {
   String textField1 = '';
+  List<Map<String, dynamic>> _allNews = [];
+  List<Map<String, dynamic>> _filteredNews = [];
+  bool _isLoading = true;
+  String _newsError = '';
+  String _dateStr = '';
+
+  static const String _newsApiKey = '7fc42a751ffdc4b471dbf176ae64b1b6';
+
+  @override
+  void initState() {
+    super.initState();
+    _setDate();
+    _fetchNews();
+  }
+
+  void _setDate() {
+    final now = DateTime.now();
+    final months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    setState(() {
+      _dateStr = '${months[now.month - 1]} ${now.day}, ${now.year}';
+    });
+  }
+
+  Future<void> _fetchNews() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _newsError = '';
+      });
+
+      print('--- Fetching Iloilo news for breaking news page ---');
+
+      final url =
+          'https://gnews.io/api/v4/search?q=Iloilo&lang=en&country=ph&max=10&apikey=$_newsApiKey';
+
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('News API timed out.');
+        },
+      );
+
+      print('News response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final articles = data['articles'] as List;
+
+        setState(() {
+          _allNews = articles.map((article) {
+            return {
+              'title': article['title'] ?? 'No title',
+              'description': article['description'] ?? '',
+              'source': article['source']['name'] ?? 'Unknown',
+              'publishedAt': article['publishedAt'] ?? '',
+              'url': article['url'] ?? '',
+              'image': article['image'] ?? '',
+            };
+          }).toList();
+          _filteredNews = List.from(_allNews);
+          _isLoading = false;
+        });
+        print('News loaded: ${_allNews.length} articles');
+      } else {
+        setState(() {
+          _newsError = 'Failed to load news: ${response.statusCode}';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('News error: $e');
+      setState(() {
+        _newsError = 'Failed to load news. Tap to retry.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _onSearch(String query) {
+    setState(() {
+      textField1 = query;
+      if (query.isEmpty) {
+        _filteredNews = List.from(_allNews);
+      } else {
+        _filteredNews = _allNews.where((news) {
+          final title = news['title'].toString().toLowerCase();
+          final description = news['description'].toString().toLowerCase();
+          final source = news['source'].toString().toLowerCase();
+          final q = query.toLowerCase();
+          return title.contains(q) ||
+              description.contains(q) ||
+              source.contains(q);
+        }).toList();
+      }
+    });
+  }
+
+  String _timeAgo(String publishedAt) {
+    try {
+      final published = DateTime.parse(publishedAt);
+      final now = DateTime.now();
+      final diff = now.difference(published);
+      if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+      if (diff.inHours < 24) return '${diff.inHours} hr ago';
+      return '${diff.inDays} days ago';
+    } catch (e) {
+      return '';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,12 +177,16 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
                                   ),
                                 ),
                               ),
-                              Container(
-                                width: 24,
-                                height: 24,
-                                child: Image.network(
-                                  "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/8503aywm_expires_30_days.png",
-                                  fit: BoxFit.fill,
+                              // Refresh button
+                              InkWell(
+                                onTap: _fetchNews,
+                                child: Container(
+                                  width: 24,
+                                  height: 24,
+                                  child: Image.network(
+                                    "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/8503aywm_expires_30_days.png",
+                                    fit: BoxFit.fill,
+                                  ),
                                 ),
                               ),
                             ],
@@ -89,9 +208,9 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
                                   ),
                                 ),
                               ),
-                              const Text(
-                                "April 29, 2024",
-                                style: TextStyle(
+                              Text(
+                                _dateStr,
+                                style: const TextStyle(
                                   color: Color(0xFF2C3439),
                                   fontSize: 10,
                                 ),
@@ -131,11 +250,7 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
                               color: Color(0xFF2C3439),
                               fontSize: 10,
                             ),
-                            onChanged: (value) {
-                              setState(() {
-                                textField1 = value;
-                              });
-                            },
+                            onChanged: _onSearch,
                             decoration: const InputDecoration(
                               hintText: "Search the news",
                               isDense: true,
@@ -147,54 +262,147 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
                             ),
                           ),
                         ),
+                        // Clear search button
+                        if (textField1.isNotEmpty)
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                textField1 = '';
+                                _filteredNews = List.from(_allNews);
+                              });
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.only(right: 12),
+                              child: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: Color(0xFF2C3439),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
 
-                  // News cards
+                  // News content
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildNewsCard(
-                          imageUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/qnib31od_expires_30_days.png",
-                          logoUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/yetb7le0_expires_30_days.png",
-                          menuIconUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/b6x8yy7p_expires_30_days.png",
-                          source: "Panay News",
-                          time: "2 min ago",
-                          headline:
-                              "JUST IN: Iloilo City logs 1st pertussis death",
-                        ),
-                        _buildNewsCard(
-                          imageUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/nzjlcjam_expires_30_days.png",
-                          logoUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/kr0kaz8i_expires_30_days.png",
-                          menuIconUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/g3kv3vac_expires_30_days.png",
-                          source: "Aksyon Radyo Iloilo",
-                          time: "2 min ago",
-                          headline:
-                              "Over 19,000 job vacancies await on Labor Day Job Fair",
-                        ),
-                        _buildNewsCard(
-                          imageUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/ascaopsb_expires_30_days.png",
-                          logoUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/hql6rx8u_expires_30_days.png",
-                          menuIconUrl:
-                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/4kkfr8bz_expires_30_days.png",
-                          source: "Daily Guardian",
-                          time: "2 min ago",
-                          headline:
-                              "JUST IN: Face-to-face classes in Iloilo City are suspended on Monday and Tuesday, May 20 and 21, 2024.",
-                        ),
-                      ],
-                    ),
+                    child: _isLoading
+                        ? Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xFFFFFFE3),
+                            ),
+                            padding: const EdgeInsets.all(48),
+                            width: double.infinity,
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFB94429),
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          )
+                        : _newsError.isNotEmpty
+                            ? Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: const Color(0xFFFFFFE3),
+                                ),
+                                padding: const EdgeInsets.all(24),
+                                width: double.infinity,
+                                child: Column(
+                                  children: [
+                                    const Icon(
+                                      Icons.wifi_off,
+                                      color: Color(0xFF999999),
+                                      size: 48,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      _newsError,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Color(0xFF777777),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    GestureDetector(
+                                      onTap: _fetchNews,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 24,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFB94429),
+                                          borderRadius:
+                                              BorderRadius.circular(24),
+                                        ),
+                                        child: const Text(
+                                          'Retry',
+                                          style: TextStyle(
+                                            color: Color(0xFFFFFFE3),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : _filteredNews.isEmpty
+                                ? Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: const Color(0xFFFFFFE3),
+                                    ),
+                                    padding: const EdgeInsets.all(24),
+                                    width: double.infinity,
+                                    child: Column(
+                                      children: [
+                                        const Icon(
+                                          Icons.search_off,
+                                          color: Color(0xFF999999),
+                                          size: 48,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          'No news found for "$textField1"',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Color(0xFF777777),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // Results count
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                            bottom: 8),
+                                        child: Text(
+                                          textField1.isEmpty
+                                              ? '${_filteredNews.length} articles about Iloilo'
+                                              : '${_filteredNews.length} results for "$textField1"',
+                                          style: const TextStyle(
+                                            color: Color(0xFF777777),
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ),
+                                      // News list
+                                      ..._filteredNews
+                                          .map((news) =>
+                                              _buildNewsCard(news: news))
+                                          .toList(),
+                                    ],
+                                  ),
                   ),
                 ],
               ),
@@ -205,14 +413,7 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
     );
   }
 
-  Widget _buildNewsCard({
-    required String imageUrl,
-    required String logoUrl,
-    required String menuIconUrl,
-    required String source,
-    required String time,
-    required String headline,
-  }) {
+  Widget _buildNewsCard({required Map<String, dynamic> news}) {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -225,31 +426,50 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // News image
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              imageUrl,
-              height: 199,
-              width: double.infinity,
-              fit: BoxFit.cover,
+          if (news['image'] != null && news['image'].toString().isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                news['image'],
+                height: 199,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    height: 199,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCCCCCC),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.image_not_supported,
+                        color: Color(0xFF999999),
+                        size: 48,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
+
           const SizedBox(height: 12),
+
           // Source + time + menu icon
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
-                  Image.network(
-                    logoUrl,
-                    width: 24,
-                    height: 24,
-                    fit: BoxFit.fill,
+                  const Icon(
+                    Icons.newspaper,
+                    size: 24,
+                    color: Color(0xFF2C3439),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    source,
+                    news['source'],
                     style: const TextStyle(
                       color: Color(0xFF2C3439),
                       fontSize: 12,
@@ -257,7 +477,7 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    time,
+                    _timeAgo(news['publishedAt']),
                     style: const TextStyle(
                       color: Color(0xFF2C3439),
                       fontSize: 8,
@@ -265,24 +485,40 @@ class HomeBreakingNewsState extends State<HomeBreakingNews> {
                   ),
                 ],
               ),
-              Image.network(
-                menuIconUrl,
-                width: 16,
-                height: 16,
-                fit: BoxFit.fill,
+              const Icon(
+                Icons.more_vert,
+                size: 16,
+                color: Color(0xFF2C3439),
               ),
             ],
           ),
+
           const SizedBox(height: 8),
+
           // Headline
           Text(
-            headline,
+            news['title'],
             style: const TextStyle(
               color: Color(0xFF2C3439),
               fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
+
+          // Description
+          if (news['description'] != null &&
+              news['description'].toString().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              news['description'],
+              style: const TextStyle(
+                color: Color(0xFF777777),
+                fontSize: 12,
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
       ),
     );

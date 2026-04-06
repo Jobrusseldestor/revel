@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:revel/widgets/bottom_nav_bar.dart';
 import 'dart:convert';
+import 'dart:async';
 
 class MainMenu extends StatefulWidget {
   const MainMenu({super.key});
@@ -19,15 +20,20 @@ class MainMenuState extends State<MainMenu> {
   String _dateStr = '';
   bool _isLoadingWeather = true;
   String _weatherError = '';
-
-  // Replace with your OpenWeatherMap API key
   static const String _apiKey = '4bded94668448fb00b1d291e93dda329';
+
+  // News state
+  List<Map<String, dynamic>> _newsList = [];
+  bool _isLoadingNews = true;
+  String _newsError = '';
+  static const String _newsApiKey = '7fc42a751ffdc4b471dbf176ae64b1b6';
 
   @override
   void initState() {
     super.initState();
     _fetchWeather();
     _setDate();
+    _fetchNews();
   }
 
   void _setDate() {
@@ -43,89 +49,134 @@ class MainMenuState extends State<MainMenu> {
     });
   }
 
- Future<void> _fetchWeather() async {
-  try {
-    print('--- Starting weather fetch ---');
-
-    double lat = 10.7202; // Iloilo City fallback
-    double lon = 122.5621;
-
-    // Try to get real location, but don't block if it fails
+  Future<void> _fetchWeather() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      print('Location service enabled: $serviceEnabled');
+      print('--- Starting weather fetch ---');
 
-      if (serviceEnabled) {
-        LocationPermission permission = await Geolocator.checkPermission();
-        print('Initial permission: $permission');
+      double lat = 10.7202;
+      double lon = 122.5621;
 
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-          print('Permission after request: $permission');
+      try {
+        bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        print('Location service enabled: $serviceEnabled');
+
+        if (serviceEnabled) {
+          LocationPermission permission = await Geolocator.checkPermission();
+          print('Initial permission: $permission');
+
+          if (permission == LocationPermission.denied) {
+            permission = await Geolocator.requestPermission();
+            print('Permission after request: $permission');
+          }
+
+          if (permission != LocationPermission.denied &&
+              permission != LocationPermission.deniedForever) {
+            print('Getting position...');
+            final position = await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.low,
+            ).timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                print('Location timed out, using Iloilo City fallback');
+                throw Exception('timeout');
+              },
+            );
+            lat = position.latitude;
+            lon = position.longitude;
+            print('Got real position: $lat, $lon');
+          }
         }
-
-        if (permission != LocationPermission.denied &&
-            permission != LocationPermission.deniedForever) {
-          print('Getting position...');
-          final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.low,
-          ).timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {
-              print('Location timed out, using Iloilo City fallback');
-              throw Exception('timeout');
-            },
-          );
-          lat = position.latitude;
-          lon = position.longitude;
-          print('Got real position: $lat, $lon');
-        }
+      } catch (locationError) {
+        print('Location error, using Iloilo City fallback: $locationError');
       }
-    } catch (locationError) {
-      print('Location error, using Iloilo City fallback: $locationError');
-      // Continue with Iloilo City fallback coordinates
-    }
 
-    // Fetch weather with whatever coordinates we have
-    const apiKey = '4bded94668448fb00b1d291e93dda329';
-    final url =
-        'https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric';
+      final url =
+          'https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$_apiKey&units=metric';
 
-    print('Fetching weather from: $url');
+      print('Fetching weather from: $url');
 
-    final response = await http.get(Uri.parse(url)).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        throw Exception('Weather API timed out.');
-      },
-    );
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Weather API timed out.');
+        },
+      );
 
-    print('Response status: ${response.statusCode}');
+      print('Response status: ${response.statusCode}');
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          _temperature = (data['main']['temp'] as num).toDouble();
+          _feelsLike = (data['main']['feels_like'] as num).toDouble();
+          _weatherDesc = data['weather'][0]['description'];
+          _cityName = data['name'];
+          _isLoadingWeather = false;
+        });
+        print('Weather loaded: $_temperature°C in $_cityName');
+      } else {
+        setState(() {
+          _weatherError = 'API Error ${response.statusCode}';
+          _isLoadingWeather = false;
+        });
+      }
+    } catch (e) {
+      print('Fatal error: $e');
       setState(() {
-        _temperature = (data['main']['temp'] as num).toDouble();
-        _feelsLike = (data['main']['feels_like'] as num).toDouble();
-        _weatherDesc = data['weather'][0]['description'];
-        _cityName = data['name'];
+        _weatherError = 'Failed to load weather. Tap to retry.';
         _isLoadingWeather = false;
       });
-      print('Weather loaded: $_temperature°C in $_cityName');
-    } else {
-      setState(() {
-        _weatherError = 'API Error ${response.statusCode}';
-        _isLoadingWeather = false;
-      });
     }
-  } catch (e) {
-    print('Fatal error: $e');
-    setState(() {
-      _weatherError = 'Failed to load weather. Tap to retry.';
-      _isLoadingWeather = false;
-    });
   }
-}
+
+  Future<void> _fetchNews() async {
+    try {
+      print('--- Fetching Iloilo news ---');
+
+      final url =
+          'https://gnews.io/api/v4/search?q=Iloilo&lang=en&country=ph&max=5&apikey=$_newsApiKey';
+
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('News API timed out.');
+        },
+      );
+
+      print('News response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final articles = data['articles'] as List;
+
+        setState(() {
+          _newsList = articles.map((article) {
+            return {
+              'title': article['title'] ?? 'No title',
+              'description': article['description'] ?? '',
+              'source': article['source']['name'] ?? 'Unknown',
+              'publishedAt': article['publishedAt'] ?? '',
+              'url': article['url'] ?? '',
+              'image': article['image'] ?? '',
+            };
+          }).toList();
+          _isLoadingNews = false;
+        });
+        print('News loaded: ${_newsList.length} articles');
+      } else {
+        setState(() {
+          _newsError = 'Failed to load news: ${response.statusCode}';
+          _isLoadingNews = false;
+        });
+      }
+    } catch (e) {
+      print('News error: $e');
+      setState(() {
+        _newsError = 'Failed to load news.';
+        _isLoadingNews = false;
+      });
+    }
+  }
 
   String _getWeatherMessage() {
     if (_temperature == null) return 'Loading weather...';
@@ -141,6 +192,19 @@ class MainMenuState extends State<MainMenu> {
     if (_temperature! >= 35) return const Color(0xFFB94429);
     if (_temperature! >= 25) return const Color(0xFFE09336);
     return const Color(0xFF4B8A7E);
+  }
+
+  String _timeAgo(String publishedAt) {
+    try {
+      final published = DateTime.parse(publishedAt);
+      final now = DateTime.now();
+      final diff = now.difference(published);
+      if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+      if (diff.inHours < 24) return '${diff.inHours} hr ago';
+      return '${diff.inDays} days ago';
+    } catch (e) {
+      return '';
+    }
   }
 
   @override
@@ -169,7 +233,7 @@ class MainMenuState extends State<MainMenu> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Weather header
+                        // ── Weather Header ──
                         IntrinsicHeight(
                           child: Container(
                             color: const Color(0xFFFFFFE3),
@@ -238,11 +302,20 @@ class MainMenuState extends State<MainMenu> {
                                           ],
                                         )
                                       : _weatherError.isNotEmpty
-                                          ? Text(
-                                              _weatherError,
-                                              style: const TextStyle(
-                                                color: Color(0xFFB94429),
-                                                fontSize: 12,
+                                          ? GestureDetector(
+                                              onTap: () {
+                                                setState(() {
+                                                  _isLoadingWeather = true;
+                                                  _weatherError = '';
+                                                });
+                                                _fetchWeather();
+                                              },
+                                              child: Text(
+                                                '$_weatherError — Tap to retry',
+                                                style: const TextStyle(
+                                                  color: Color(0xFFB94429),
+                                                  fontSize: 12,
+                                                ),
                                               ),
                                             )
                                           : Row(
@@ -300,7 +373,8 @@ class MainMenuState extends State<MainMenu> {
                                                         ),
                                                         Text(
                                                           '${_temperature?.toStringAsFixed(0)}° C',
-                                                          style: const TextStyle(
+                                                          style:
+                                                              const TextStyle(
                                                             color: Color(
                                                                 0xFF2C3439),
                                                             fontSize: 8,
@@ -383,7 +457,7 @@ class MainMenuState extends State<MainMenu> {
                           ),
                         ),
 
-                        // Search bar
+                        // ── Search Bar ──
                         IntrinsicHeight(
                           child: Container(
                             decoration: BoxDecoration(
@@ -439,7 +513,7 @@ class MainMenuState extends State<MainMenu> {
                           ),
                         ),
 
-                        // Shortcuts
+                        // ── Shortcuts ──
                         IntrinsicHeight(
                           child: Container(
                             margin: const EdgeInsets.only(
@@ -519,7 +593,7 @@ class MainMenuState extends State<MainMenu> {
                           ),
                         ),
 
-                        // Emergency Services
+                        // ── Emergency Services ──
                         Container(
                           margin: const EdgeInsets.only(
                             bottom: 24,
@@ -688,7 +762,7 @@ class MainMenuState extends State<MainMenu> {
                           ),
                         ),
 
-                        // Breaking News
+                        // ── Breaking News ──
                         IntrinsicHeight(
                           child: Container(
                             margin: const EdgeInsets.only(
@@ -700,6 +774,7 @@ class MainMenuState extends State<MainMenu> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                // Header row
                                 Container(
                                   margin: const EdgeInsets.only(bottom: 12),
                                   width: double.infinity,
@@ -732,94 +807,72 @@ class MainMenuState extends State<MainMenu> {
                                     ],
                                   ),
                                 ),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    color: const Color(0xFFFFFFE3),
-                                  ),
-                                  padding: const EdgeInsets.all(12),
-                                  width: double.infinity,
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 12),
-                                        width: double.infinity,
-                                        child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Container(
-                                                  margin: const EdgeInsets.only(
-                                                      right: 8),
-                                                  width: 24,
-                                                  height: 24,
-                                                  child: Image.network(
-                                                    "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/oh9l9a3b_expires_30_days.png",
-                                                    fit: BoxFit.fill,
-                                                  ),
-                                                ),
-                                                const Text(
-                                                  "RIC News",
-                                                  style: TextStyle(
-                                                    color: Color(0xFF2C3439),
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 12),
-                                                const Text(
-                                                  "2 min ago",
-                                                  style: TextStyle(
-                                                    color: Color(0xFF2C3439),
-                                                    fontSize: 8,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            Container(
-                                              width: 16,
-                                              height: 16,
-                                              child: Image.network(
-                                                "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/lwxc3ll5_expires_30_days.png",
-                                                fit: BoxFit.fill,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+
+                                // News content
+                                if (_isLoadingNews)
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: const Color(0xFFFFFFE3),
+                                    ),
+                                    padding: const EdgeInsets.all(24),
+                                    width: double.infinity,
+                                    child: const Center(
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFFB94429),
+                                        strokeWidth: 2,
                                       ),
-                                      Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 12),
-                                        width: double.infinity,
-                                        child: const Text(
-                                          "JUST IN: Iloilo City logs 1st pertussis death",
-                                          style: TextStyle(
-                                            color: Color(0xFF2C3439),
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                else if (_newsError.isNotEmpty)
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: const Color(0xFFFFFFE3),
+                                    ),
+                                    padding: const EdgeInsets.all(16),
+                                    width: double.infinity,
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          _newsError,
+                                          style: const TextStyle(
+                                            color: Color(0xFF777777),
+                                            fontSize: 12,
                                           ),
                                         ),
-                                      ),
-                                      const Text(
-                                        "The Iloilo City Government cases reported today that it had recorded 30 cases of pertussis or whooping cough as of April 12, 2024.\n\nIn its pertussis advisory issued today, the city confirmed 10 cases, while one of those infected has died.",
-                                        style: TextStyle(
-                                          color: Color(0xFF777777),
-                                          fontSize: 12,
+                                        const SizedBox(height: 8),
+                                        GestureDetector(
+                                          onTap: () {
+                                            setState(() {
+                                              _isLoadingNews = true;
+                                              _newsError = '';
+                                            });
+                                            _fetchNews();
+                                          },
+                                          child: const Text(
+                                            'Tap to retry',
+                                            style: TextStyle(
+                                              color: Color(0xFFB94429),
+                                              fontSize: 12,
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  Column(
+                                    children: _newsList
+                                        .map((news) => _buildNewsCard(news))
+                                        .toList(),
                                   ),
-                                ),
                               ],
                             ),
                           ),
                         ),
 
-                        // About Iloilo City
+                        // ── About Iloilo City ──
                         IntrinsicHeight(
                           child: Container(
                             margin: const EdgeInsets.only(
@@ -902,7 +955,7 @@ class MainMenuState extends State<MainMenu> {
                 ),
               ),
 
-              // Bottom nav bar
+              // ── Bottom Nav Bar ──
               AppBottomNavBar(
                 currentIndex: 0,
                 pageContext: context,
@@ -914,7 +967,117 @@ class MainMenuState extends State<MainMenu> {
     );
   }
 
-  Widget _shortcutItem(String imageUrl, String label, {double leftMargin = 0}) {
+  // ── Helper Widgets ──
+
+  Widget _buildNewsCard(Map<String, dynamic> news) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFFFFFE3),
+      ),
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // News image
+          if (news['image'] != null &&
+              news['image'].toString().isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              height: 160,
+              width: double.infinity,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  news['image'],
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: const Color(0xFFCCCCCC),
+                      child: const Center(
+                        child: Icon(
+                          Icons.image_not_supported,
+                          color: Color(0xFF999999),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+          // Source and time row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.newspaper,
+                    size: 16,
+                    color: Color(0xFF2C3439),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    news['source'],
+                    style: const TextStyle(
+                      color: Color(0xFF2C3439),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _timeAgo(news['publishedAt']),
+                    style: const TextStyle(
+                      color: Color(0xFF2C3439),
+                      fontSize: 8,
+                    ),
+                  ),
+                ],
+              ),
+              const Icon(
+                Icons.more_vert,
+                size: 16,
+                color: Color(0xFF2C3439),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Title
+          Text(
+            news['title'],
+            style: const TextStyle(
+              color: Color(0xFF2C3439),
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          // Description
+          if (news['description'] != null &&
+              news['description'].toString().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              news['description'],
+              style: const TextStyle(
+                color: Color(0xFF777777),
+                fontSize: 12,
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _shortcutItem(String imageUrl, String label,
+      {double leftMargin = 0}) {
     return Container(
       margin: EdgeInsets.only(right: 23, left: leftMargin),
       child: Column(
