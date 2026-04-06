@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:revel/widgets/bottom_nav_bar.dart';
+import 'dart:convert';
 
 class MainMenu extends StatefulWidget {
   const MainMenu({super.key});
@@ -8,8 +11,144 @@ class MainMenu extends StatefulWidget {
 }
 
 class MainMenuState extends State<MainMenu> {
+  // Weather state
+  double? _temperature;
+  double? _feelsLike;
+  String _weatherDesc = '';
+  String _cityName = '';
+  String _dateStr = '';
+  bool _isLoadingWeather = true;
+  String _weatherError = '';
+
+  // Replace with your OpenWeatherMap API key
+  static const String _apiKey = '4bded94668448fb00b1d291e93dda329';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWeather();
+    _setDate();
+  }
+
+  void _setDate() {
+    final now = DateTime.now();
+    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    setState(() {
+      _dateStr =
+          '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]}';
+    });
+  }
+
+ Future<void> _fetchWeather() async {
+  try {
+    print('--- Starting weather fetch ---');
+
+    double lat = 10.7202; // Iloilo City fallback
+    double lon = 122.5621;
+
+    // Try to get real location, but don't block if it fails
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      print('Location service enabled: $serviceEnabled');
+
+      if (serviceEnabled) {
+        LocationPermission permission = await Geolocator.checkPermission();
+        print('Initial permission: $permission');
+
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          print('Permission after request: $permission');
+        }
+
+        if (permission != LocationPermission.denied &&
+            permission != LocationPermission.deniedForever) {
+          print('Getting position...');
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.low,
+          ).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              print('Location timed out, using Iloilo City fallback');
+              throw Exception('timeout');
+            },
+          );
+          lat = position.latitude;
+          lon = position.longitude;
+          print('Got real position: $lat, $lon');
+        }
+      }
+    } catch (locationError) {
+      print('Location error, using Iloilo City fallback: $locationError');
+      // Continue with Iloilo City fallback coordinates
+    }
+
+    // Fetch weather with whatever coordinates we have
+    const apiKey = '4bded94668448fb00b1d291e93dda329';
+    final url =
+        'https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric';
+
+    print('Fetching weather from: $url');
+
+    final response = await http.get(Uri.parse(url)).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        throw Exception('Weather API timed out.');
+      },
+    );
+
+    print('Response status: ${response.statusCode}');
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      setState(() {
+        _temperature = (data['main']['temp'] as num).toDouble();
+        _feelsLike = (data['main']['feels_like'] as num).toDouble();
+        _weatherDesc = data['weather'][0]['description'];
+        _cityName = data['name'];
+        _isLoadingWeather = false;
+      });
+      print('Weather loaded: $_temperature°C in $_cityName');
+    } else {
+      setState(() {
+        _weatherError = 'API Error ${response.statusCode}';
+        _isLoadingWeather = false;
+      });
+    }
+  } catch (e) {
+    print('Fatal error: $e');
+    setState(() {
+      _weatherError = 'Failed to load weather. Tap to retry.';
+      _isLoadingWeather = false;
+    });
+  }
+}
+
+  String _getWeatherMessage() {
+    if (_temperature == null) return 'Loading weather...';
+    if (_temperature! >= 38) return 'Today is soaking hot! Stay hydrated!';
+    if (_temperature! >= 30) return 'It\'s warm today. Stay cool!';
+    if (_temperature! >= 20) return 'Pleasant weather today. Enjoy!';
+    if (_temperature! >= 10) return 'It\'s a bit cool today. Dress warm!';
+    return 'It\'s cold today. Bundle up!';
+  }
+
+  Color _getTempColor() {
+    if (_temperature == null) return const Color(0xFF2C3439);
+    if (_temperature! >= 35) return const Color(0xFFB94429);
+    if (_temperature! >= 25) return const Color(0xFFE09336);
+    return const Color(0xFF4B8A7E);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final timeStr =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
     return Scaffold(
       body: SafeArea(
         child: Container(
@@ -53,9 +192,9 @@ class MainMenuState extends State<MainMenu> {
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text(
-                                        "11:07",
-                                        style: TextStyle(
+                                      Text(
+                                        timeStr,
+                                        style: const TextStyle(
                                           color: Color(0xFF2C3439),
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
@@ -72,83 +211,116 @@ class MainMenuState extends State<MainMenu> {
                                     ],
                                   ),
                                 ),
+
                                 // Temperature row
                                 Container(
                                   margin: const EdgeInsets.only(bottom: 8),
                                   width: double.infinity,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Container(
-                                                margin: const EdgeInsets.only(
-                                                    right: 8),
-                                                width: 24,
-                                                height: 24,
-                                                child: Image.network(
-                                                  "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/omc3gko5_expires_30_days.png",
-                                                  fit: BoxFit.fill,
-                                                ),
+                                  child: _isLoadingWeather
+                                      ? const Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Color(0xFFB94429),
                                               ),
-                                              Container(
-                                                margin: const EdgeInsets.only(
-                                                    right: 11),
-                                                child: const Text(
-                                                  "Feels like ",
-                                                  style: TextStyle(
+                                            ),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              'Loading weather...',
+                                              style: TextStyle(
+                                                color: Color(0xFF2C3439),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : _weatherError.isNotEmpty
+                                          ? Text(
+                                              _weatherError,
+                                              style: const TextStyle(
+                                                color: Color(0xFFB94429),
+                                                fontSize: 12,
+                                              ),
+                                            )
+                                          : Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Container(
+                                                      margin:
+                                                          const EdgeInsets.only(
+                                                              right: 8),
+                                                      width: 24,
+                                                      height: 24,
+                                                      child: Image.network(
+                                                        "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/omc3gko5_expires_30_days.png",
+                                                        fit: BoxFit.fill,
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      margin:
+                                                          const EdgeInsets.only(
+                                                              right: 11),
+                                                      child: const Text(
+                                                        "Feels like ",
+                                                        style: TextStyle(
+                                                          color:
+                                                              Color(0xFF2C3439),
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '${_feelsLike?.toStringAsFixed(0)}°C',
+                                                      style: TextStyle(
+                                                        color: _getTempColor(),
+                                                        fontSize: 24,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 22),
+                                                    Row(
+                                                      children: [
+                                                        Container(
+                                                          margin: const EdgeInsets
+                                                              .only(right: 4),
+                                                          width: 12,
+                                                          height: 12,
+                                                          child: Image.network(
+                                                            "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/1xy3hg1l_expires_30_days.png",
+                                                            fit: BoxFit.fill,
+                                                          ),
+                                                        ),
+                                                        Text(
+                                                          '${_temperature?.toStringAsFixed(0)}° C',
+                                                          style: const TextStyle(
+                                                            color: Color(
+                                                                0xFF2C3439),
+                                                            fontSize: 8,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                                Text(
+                                                  _dateStr,
+                                                  style: const TextStyle(
                                                     color: Color(0xFF2C3439),
-                                                    fontSize: 12,
+                                                    fontSize: 10,
                                                   ),
                                                 ),
-                                              ),
-                                              const Text(
-                                                "42°C",
-                                                style: TextStyle(
-                                                  color: Color(0xFFB94429),
-                                                  fontSize: 24,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(width: 22),
-                                          Row(
-                                            children: [
-                                              Container(
-                                                margin: const EdgeInsets.only(
-                                                    right: 4),
-                                                width: 12,
-                                                height: 12,
-                                                child: Image.network(
-                                                  "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/1xy3hg1l_expires_30_days.png",
-                                                  fit: BoxFit.fill,
-                                                ),
-                                              ),
-                                              const Text(
-                                                "36° C",
-                                                style: TextStyle(
-                                                  color: Color(0xFF2C3439),
-                                                  fontSize: 8,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      const Text(
-                                        "Fri 29",
-                                        style: TextStyle(
-                                          color: Color(0xFF2C3439),
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                              ],
+                                            ),
                                 ),
+
                                 // Forecast row
                                 Container(
                                   width: double.infinity,
@@ -156,35 +328,52 @@ class MainMenuState extends State<MainMenu> {
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text(
-                                        "Today is soaking hot! Stay hydrated!",
-                                        style: TextStyle(
-                                          color: Color(0xFF2C3439),
-                                          fontSize: 10,
+                                      Expanded(
+                                        child: Text(
+                                          _isLoadingWeather
+                                              ? 'Getting your location...'
+                                              : _weatherError.isNotEmpty
+                                                  ? _weatherError
+                                                  : _getWeatherMessage(),
+                                          style: const TextStyle(
+                                            color: Color(0xFF2C3439),
+                                            fontSize: 10,
+                                          ),
                                         ),
                                       ),
-                                      Row(
-                                        children: [
-                                          Container(
-                                            margin: const EdgeInsets.only(
-                                                right: 6),
-                                            child: const Text(
-                                              "See weekly forecast",
-                                              style: TextStyle(
-                                                color: Color(0xFFB94429),
-                                                fontSize: 10,
+                                      GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            _isLoadingWeather = true;
+                                            _weatherError = '';
+                                          });
+                                          _fetchWeather();
+                                        },
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              margin: const EdgeInsets.only(
+                                                  right: 6),
+                                              child: Text(
+                                                _cityName.isNotEmpty
+                                                    ? _cityName
+                                                    : 'See weekly forecast',
+                                                style: const TextStyle(
+                                                  color: Color(0xFFB94429),
+                                                  fontSize: 10,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                          Container(
-                                            width: 16,
-                                            height: 16,
-                                            child: Image.network(
-                                              "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/nqllp1vo_expires_30_days.png",
-                                              fit: BoxFit.fill,
+                                            Container(
+                                              width: 16,
+                                              height: 16,
+                                              child: Image.network(
+                                                "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/TRvBR2s2yD/nqllp1vo_expires_30_days.png",
+                                                fit: BoxFit.fill,
+                                              ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -214,8 +403,7 @@ class MainMenuState extends State<MainMenu> {
                                 Row(
                                   children: [
                                     Container(
-                                      margin:
-                                          const EdgeInsets.only(right: 12),
+                                      margin: const EdgeInsets.only(right: 12),
                                       width: 24,
                                       height: 24,
                                       child: Image.network(
@@ -273,7 +461,6 @@ class MainMenuState extends State<MainMenu> {
                                     ),
                                   ),
                                 ),
-                                // Row 1
                                 SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
                                   child: Row(
@@ -299,7 +486,6 @@ class MainMenuState extends State<MainMenu> {
                                   ),
                                 ),
                                 const SizedBox(height: 12),
-                                // Row 2
                                 SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
                                   child: Row(
@@ -716,7 +902,7 @@ class MainMenuState extends State<MainMenu> {
                 ),
               ),
 
-              // ✅ New bottom nav bar
+              // Bottom nav bar
               AppBottomNavBar(
                 currentIndex: 0,
                 pageContext: context,
@@ -728,9 +914,7 @@ class MainMenuState extends State<MainMenu> {
     );
   }
 
-  // Shortcut helper
-  Widget _shortcutItem(String imageUrl, String label,
-      {double leftMargin = 0}) {
+  Widget _shortcutItem(String imageUrl, String label, {double leftMargin = 0}) {
     return Container(
       margin: EdgeInsets.only(right: 23, left: leftMargin),
       child: Column(
